@@ -1,0 +1,6 @@
+easygui==0.98.3
+m3u_parser==0.4.2
+mutagen==1.47.0
+pygame==2.6.1
+pynput==1.8.2
+PyWinCtl==0.4.1
