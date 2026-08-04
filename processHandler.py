@@ -71,7 +71,9 @@ class processHandler:
                     self.Qevent.put("load_playlist")
                 elif key == self.CREATEPLATLISTFILE:
                     self.Qevent.put("save_playlist")
+            except queue.Empty:
+                pass
             except Exception as e:
-                print(f"捕获到错误： {e}")
+                print(f"process Handler 遇到未知错误：{e}")
     
     

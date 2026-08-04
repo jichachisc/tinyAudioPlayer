@@ -12,6 +12,7 @@ if __name__ == "__main__":
     playlist = scanDir(playlistDir)
     if playlist != [] and playlist:
         engine = musicEngine(playlist , Qevent)
+        engine.loadState()
         handler = processHandler(Qevent)
         threading.Thread(target=handler.analizeKey, daemon=True).start()
         cmd_thread = threading.Thread(target=engine.runCommand)

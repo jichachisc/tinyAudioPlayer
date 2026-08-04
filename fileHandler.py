@@ -5,7 +5,7 @@ import queue
 from m3u_parser import M3uParser
 from utils import getFileMetadata, scanDir, normalizePath
 
-class readJson:
+class MetadataScanner:
     def __init__(self, direction: str):
         self.playlist = scanDir(direction)
         self.jsonDict = self.summonDict()
@@ -28,14 +28,13 @@ class cacheHandler:
     def __init__(self, cacheFileName: str, direction="./"):
         self.cacheFile = cacheFileName
         self.direction = direction
-        self.writeJson()
-    def writeJson(self):
-        cacheReader = readJson(self.direction)
+    def writeJson(self) -> None:
+        cacheReader = MetadataScanner(self.direction)
         cache = cacheReader.jsonDict
         with open(self.cacheFile, "w", encoding='utf-8') as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
         print(f"\n尝试创建缓存成功，保存在 {self.cacheFile}")
-    def readJson(self):
+    def readJson(self) -> dict:
         if not os.path.exists(self.cacheFile):
             print(f"\n缓存文件 {self.cacheFile} 不存在，创建缓存")
             return {}

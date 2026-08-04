@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+
+# 运行时文件（用户特定数据）
+metadata_cache.json
+stateBeforeExit.json
+
+# 音频文件（太大，不应该提交到 Git）
+*.mp3
+*.flac
+*.ogg
+*.wav
+*.m4a
+
+# 播放列表（用户生成）
+*.m3u
+*.m3u8
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

@@ -5,6 +5,7 @@ import threading
 import queue
 from random import shuffle
 import easygui
+import json
 
 from fileHandler import cacheHandler, M3UHandler
 from utils import getFileMetadata, _format_time, normalizePath
@@ -25,23 +26,39 @@ class musicEngine:
     def __init__(self, playlist: list, Qevent: queue.Queue):
         # 初始化基本参量
         print("尝试启动")
+        self.isStarted = False
         self.isPlaying = False
         self.isPaused = False
-        self.timeDuration = 0.0
-        self.timeStart = None
         self.scroll_offset = 0
         self.scroll_counter = 0
         self.Qevent = Qevent
         self.duration = 180.0  # 默认 3 分钟
         self.timeImagine = 10.0 # 这里timeImagine是前进时间
+        self.play_start_pos = 0.0
         # 初始化播放列表
         self.playlist = playlist
         self.currentIndex = 0
         self.playMode = 0b0001  # 0b 单曲循环 顺序播放 随机播放 列表循环
+        self.seek_accumulator = 0  # 累积的 seek 偏移量
+        self.seek_timer = None
         self.destination = ""
         # 创建 cache
-        self.handler = cacheHandler("metadata_cache.json")
-        self.cache = self.handler.readJson()
+        self.handler = cacheHandler("metadata_cache.json",  "./")
+        if os.path.exists("metadata_cache.json"):
+            self.cache = self.handler.readJson()
+            songLists = self.cache.keys()
+            added = set(playlist) - set(songLists)
+            removed = set(songLists) - set(playlist)
+
+            if added or removed:
+                print(f"新增 {len(added)} 首，删除 {len(removed)} 首，重建缓存")
+                self.handler.writeJson()
+                self.cache = self.handler.readJson()
+            else:
+                print("缓存与当前目录一致")
+        else:
+            self.handler.writeJson()
+            self.cache = self.handler.readJson()
         # 初始化列表办法
         # 初始化引擎
         # 获取元数据
@@ -55,15 +72,17 @@ class musicEngine:
     def loadSong(self, destination):
         #目的：重新初始化引擎基本参量
         self.destination = destination
-        self.timeDuration = 0.0
-        self.timeStart = None
         self.isPlaying = False
         self.isPaused = False
+        self.isStarted = False
+        self.loadJump = 0.0
+        self.play_start_pos = 0.0  # 重置
         self.scroll_offset = 0
         self.scroll_counter = 0
         print(f"\r{' ' * 120}\r尝试重置引擎成功，尝试加载 {self.destination}")
         self.init_engine()
         self.get_Metadata() 
+        # pygame.mixer.music.set_pos(0)
 
     def init_engine(self):
         pygame.mixer.init()
@@ -93,13 +112,11 @@ class musicEngine:
 
     # 处理流
     def play(self):
-        # 判断是否开播 -> 播放
-        if not self.isPlaying:
-            pygame.mixer.music.play()
-            # 时间戳
-            self.timeStart = time.perf_counter()
-            # 改布尔
+        if not self.isStarted:
+            pygame.mixer.music.play(start=self.loadJump)
+            self.play_start_pos = self.loadJump  # 记录起始位置
             self.isPlaying = True
+            self.isStarted = True
             print("开始播放")
         else:
             print("正在进行")
@@ -109,12 +126,10 @@ class musicEngine:
         # 判断是否暂停 -> 暂停
         if self.isPlaying:
             # 记录时间戳位置 !! 建立在已经开始的基础上 !!
-            self.timeDuration += time.perf_counter() - self.timeStart
             pygame.mixer.music.pause()
             self.isPlaying = False
             self.isPaused = True
             print("暂停")
-            # print(self.timeDuration) # Debug
         else:
             print("已经停止")
         
@@ -122,7 +137,6 @@ class musicEngine:
         if not self.isPlaying:
             if self.isPaused:
                 pygame.mixer.music.unpause()
-                self.timeStart = time.perf_counter()
                 self.isPaused = False
                 self.isPlaying = True
                 print("恢复播放")
@@ -137,41 +151,65 @@ class musicEngine:
             self.isPlaying = False
             self.isPaused = False
             # self.current_time = 0.0
-            self.timeDuration = 0.0
             self.start_time = None
             print("停止")
         else:
             print("已经停止或未初始化")
 
     def seek(self, direction=1):
-        """
-        快进或快退
-        direction=1  -> 快进; 
-        direction=-1 -> 快退
-        """
-        if not (self.isPlaying or self.isPaused):
-            print("已经停止或未初始化")
+        # 累积偏移量
+        self.seek_accumulator += direction * self.timeImagine
+        
+        # 取消之前的定时器
+        if self.seek_timer is not None:
+            self.seek_timer.cancel()
+        
+        # 设置新的定时器（延迟 150ms 执行）
+        self.seek_timer = threading.Timer(0.5, self._apply_seek)
+        self.seek_timer.daemon = True
+        self.seek_timer.start()
+    
+    # 支持多次合并的支持程序
+    def _apply_seek(self):
+        if self.seek_accumulator == 0:
             return
-        # 计算目标位置
-        if self.isPlaying:
-            self.timeDuration += time.perf_counter() - self.timeStart
-            self.timeStart = time.perf_counter()
-        target = self.timeDuration + self.timeImagine * direction
-        # 边界检查
-        if target < 0:
-            target = 0.1
-        elif target > self.duration:
-            target = self.duration
-
-        # 执行跳转
-        pygame.mixer.music.set_pos(target)
-        self.timeDuration = target
+        
+        if not (self.isPlaying or self.isPaused):
+            self.seek_accumulator = 0
+            return
+        
+        # 计算当前位置
+        pos_offset = pygame.mixer.music.get_pos() / 1000.0
+        if pos_offset < 0:
+            pos_offset = 0
+        current_pos = self.play_start_pos + pos_offset
+        
+        target = current_pos + self.seek_accumulator
+        target = max(0.1, min(target, self.duration))
+        
+        was_paused = self.isPaused
+        
+        pygame.mixer.music.stop()
+        pygame.mixer.music.play(start=target)
+        self.play_start_pos = target
+        
+        if was_paused:
+            pygame.mixer.music.pause()
+            self.isPlaying = False
+            self.isPaused = True
+        else:
+            self.isPlaying = True
+            self.isPaused = False
+        
+        print(f"跳转到 {target:.2f} 秒 (累计偏移 {self.seek_accumulator:.1f} 秒)")
+        self.seek_accumulator = 0
     
     def nextSong(self):
         if len(self.playlist) > 1:
             wasPlaying = self.isPlaying
             self.currentIndex = (self.currentIndex + 1) % len(self.playlist)
             self.loadSong(self.playlist[self.currentIndex])
+            self.play_start_pos = 0  # 重置
             self.play()
             if not wasPlaying:
                 self.pause()
@@ -180,6 +218,7 @@ class musicEngine:
             wasPlaying = self.isPlaying
             self.currentIndex = (self.currentIndex - 1) % len(self.playlist)
             self.loadSong(self.playlist[self.currentIndex])
+            self.play_start_pos = 0  # 重置
             self.play()
             if not wasPlaying:
                 self.pause()
@@ -267,17 +306,30 @@ class musicEngine:
         # 解析 M3U
         m3uhandle = M3UHandler()
         playlist, metadatas = m3uhandle.readM3UFile(file)
+        self.reloadPlaylist(playlist, metadatas)
         
+    def reloadPlaylist(self, playlist, metadatas):
         if playlist:
+        # 停止当前播放
+            pygame.mixer.music.stop()
+            
+            # 更新播放列表
             self.playlist = playlist
             self.currentIndex = 0
+            
+            # 合并元数据到 cache
             for path, meta in metadatas.items():
                 if path not in self.cache:
                     self.cache[path] = meta
+            
+            # 加载第一首歌（更新 self.destination，重新加载音频）
             self.loadSong(self.playlist[0])
-            if self.isPlaying:
-                self.play()
+            
+            # 自动播放（可选）
+            self.play()
+            
             print(f"已加载播放列表 ({len(playlist)} 首歌)")
+            showLists(self.currentIndex, self.playlist, self.cache)
         else:
             return 1
     
@@ -287,11 +339,8 @@ class musicEngine:
     # 总控制器
     def runCommand(self):
         while self.running:
-            if self.timeDuration >= self.duration:
+            if pygame.mixer.music.get_pos()/1000 >= self.duration:
                 self.nextSong()
-            if self.isPlaying and self.timeStart:
-                self.timeDuration += time.perf_counter() - self.timeStart
-                self.timeStart = time.perf_counter()
             try:
                 # 过来加命令
                 command = self.Qevent.get(timeout=0.1)
@@ -301,7 +350,10 @@ class musicEngine:
                     if self.isPlaying: self.pause()
                     else: self.resume()
                 elif command == "stop":
+                    # 这里退出了，设置退出状态
                     self.running = False
+                    # 保存一下状态
+                    self.saveState()
                     self.stop()
                 elif command == "fseek":
                     self.seek(1)
@@ -347,10 +399,63 @@ class musicEngine:
             
             print(f"\r{self.get_progress_bar()}", end="")
 
+    # 退出时保存逻辑
+    def saveState(self):
+        state = {
+            "wasPlaying" : self.isPlaying,
+            "wasPaused" : self.isPaused,
+            "timeDuration" : pygame.mixer.music.get_pos(),
+            "currentIndex" : self.currentIndex,
+            "playlist" : self.playlist,
+            "volume" : pygame.mixer.music.get_volume(),
+            "playMode" : self.playMode
+            }
+        with open("stateBeforeExit.json", "w", encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        print("已保存此次播放进度至 stateBeforeExit.json")
+
+    def loadState(self) -> bool:
+        if not os.path.exists("stateBeforeExit.json"):
+            return 1
+    
+        with open("stateBeforeExit.json", "r", encoding='utf-8') as f:
+            state = json.load(f)
+        
+        self.playlist = state.get("playlist", self.playlist)
+        self.currentIndex = state.get("currentIndex", 0)
+        self.loadJump = state.get("timeDuration", 0.0)
+        self.isPlaying = state.get("wasPlaying", False)
+        self.isPaused = state.get("wasPaused", True)
+        self.playMode = state.get("playMode", "normal")
+        pygame.mixer.music.set_volume(state.get("volume", 0.7))
+        metadatas = {}
+        for song in self.playlist:
+            if song in self.cache:
+                metadata = self.cache.get(song)
+                print(metadata,end="\n\n")
+            else:
+                metadata = getFileMetadata(song)
+            metadatas[song] = {
+                "title": metadata.get('title'),
+                "artist": metadata.get('artist'),
+                "duration": metadata.get('duration'),
+            }
+        
+        self.reloadPlaylist(self.playlist, metadatas)
+        
+        return 0
 
     #进度条
     def get_progress_bar(self, length=50):
-        percent = self.timeDuration / self.duration if self.duration > 0 else 0
+        pos_offset = pygame.mixer.music.get_pos() / 1000.0
+        if pos_offset < 0:
+            pos_offset = 0
+        
+        # 实际位置 = 起始位置 + 偏移量
+        current_pos = self.play_start_pos + pos_offset
+        
+        percent = current_pos / self.duration if self.duration > 0 else 0
+        percent = max(0, min(1, percent))
         filled = int(percent * length)
         bar = "█" * filled + "░" * (length - filled)
         
@@ -365,7 +470,7 @@ class musicEngine:
             self.scroll_counter
         )
         
-        return f"[{bar}] {percent*100:.1f}% {_format_time(self.timeDuration)}/{_format_time(self.duration)}  {display_info}             "
+        return f"[{bar}] {percent*100:.1f}% {_format_time(current_pos)}/{_format_time(self.duration)}  {display_info}             "
 
 
 # 免得以后的我看不懂，在没有搞清楚自己再干啥之前不要动 musicEngine
