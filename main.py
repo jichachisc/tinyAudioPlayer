@@ -12,7 +12,11 @@ if __name__ == "__main__":
     playlist = scanDir(playlistDir)
     if playlist != [] and playlist:
         engine = musicEngine(playlist , Qevent)
-        engine.loadState()
+        if os.path.exists("stateBeforeExit.json"):  # 如果没有状态文件
+        # 手动加载第一首歌
+            engine.loadState()
+        else:
+            engine.loadSong(playlist[0])
         handler = processHandler(Qevent)
         threading.Thread(target=handler.analizeKey, daemon=True).start()
         cmd_thread = threading.Thread(target=engine.runCommand)
