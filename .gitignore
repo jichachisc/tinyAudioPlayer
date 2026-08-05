@@ -13,7 +13,7 @@ ENV/
 metadata_cache.json
 stateBeforeExit.json
 
-# 音频文件（太大，不应该提交到 Git）
+# 音频文件
 *.mp3
 *.flac
 *.ogg

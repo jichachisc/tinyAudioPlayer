@@ -339,8 +339,20 @@ class musicEngine:
     # 总控制器
     def runCommand(self):
         while self.running:
-            if pygame.mixer.music.get_pos()/1000 >= self.duration:
-                self.nextSong()
+            pos_offset = pygame.mixer.music.get_pos() / 1000.0
+            if pos_offset < 0:
+                pos_offset = 0
+            current_pos = self.play_start_pos + pos_offset
+            
+            # 检查是否播放完毕（加一点缓冲，避免浮点误差）
+            if current_pos >= self.duration - 0.2:
+                # 单曲循环模式
+                if self.playMode == 0b0001:  # MODE_SINGLE
+                    self.loadSong(self.destination)
+                    self.play_start_pos = 0
+                    self.play()
+                else:
+                    self.nextSong()
             try:
                 # 过来加命令
                 command = self.Qevent.get(timeout=0.1)
@@ -424,6 +436,8 @@ class musicEngine:
         self.playlist = state.get("playlist", self.playlist)
         self.currentIndex = state.get("currentIndex", 0)
         self.loadJump = state.get("timeDuration", 0.0)
+        if self.loadJump == -1:
+            self.loadJump = 0.1
         self.isPlaying = state.get("wasPlaying", False)
         self.isPaused = state.get("wasPaused", True)
         self.playMode = state.get("playMode", "normal")
