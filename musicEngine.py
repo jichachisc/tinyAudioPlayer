@@ -3,7 +3,7 @@ import time
 import os
 import threading
 import queue
-from random import shuffle
+from random import shuffle, randint
 import easygui
 import json
 
@@ -42,6 +42,11 @@ class musicEngine:
         self.seek_accumulator = 0  # 累积的 seek 偏移量
         self.seek_timer = None
         self.destination = ""
+        # 定义 playMode
+        self.MODE_SEQUENTIAL = 0b0010   # 顺序播放
+        self.MODE_SINGLE = 0b0001       # 单曲循环
+        self.MODE_SHUFFLE = 0b0100      # 随机播放
+        self.MODE_LIST = 0b1000         # 列表循环
         # 创建 cache
         self.handler = cacheHandler("metadata_cache.json",  "./")
         if os.path.exists("metadata_cache.json"):
@@ -211,19 +216,68 @@ class musicEngine:
         self.seek_accumulator = 0
     
     def nextSong(self):
-        if len(self.playlist) >= 1:
-            wasPlaying = self.isPlaying
+        wasPlaying = self.isPlaying
+        wasPaused = self.isPaused
+        if len(self.playlist) <= 1:
+            # 只有一首歌：根据模式决定
+            if self.playMode == self.MODE_SINGLE:
+                # 单曲循环：重新播放
+                self.loadSong(self.destination)
+                self.play_start_pos = 0
+                self.play()
+            return
+        
+        # 根据模式选择下一首
+        if self.playMode == self.MODE_SEQUENTIAL:
+            # 顺序播放：按顺序 +1
             self.currentIndex = (self.currentIndex + 1) % len(self.playlist)
-            self.loadSong(self.playlist[self.currentIndex])
-            self.play_start_pos = 0  # 重置
+        
+        elif self.playMode == self.MODE_LIST:
+            # 列表循环：按顺序 +1（和顺序播放一样，但播完最后一首回到第一首）
+            self.currentIndex = (self.currentIndex + 1) % len(self.playlist)
+        
+        elif self.playMode == self.MODE_SHUFFLE:
+            # 随机播放：随机列表（不重复）
+            self.currentIndex = randint(0, len(self.playlist) - 1)
+        
+        elif self.playMode == self.MODE_SINGLE:
+            # 单曲循环：重新播放
+            self.loadSong(self.destination)
+            self.play_start_pos = 0
             self.play()
-            if not wasPlaying:
-                self.pause()
+            return
+        
+        # 加载并播放新歌
+        print(self.playlist[self.currentIndex])
+        self.loadSong(self.playlist[self.currentIndex])
+        pygame.mixer.music.load(self.destination)
+        self.play_start_pos = 0
+        self.play()
+        if not wasPlaying or wasPaused:
+            self.pause()
+
     def prevSong(self):
-        if len(self.playlist) > 1:
-            wasPlaying = self.isPlaying
+        wasPlaying = self.isPlaying
+        wasPaused = self.isPaused
+        if len(self.playlist) <= 1:
+            if self.playMode == self.MODE_SINGLE:
+                self.loadSong(self.destination)
+                self.play_start_pos = 0
+                self.play()
+            return
+        
+        if self.playMode == self.MODE_SHUFFLE:
+            # 随机播放：随机列表
+            import random
+            new_idx = random.randint(0, len(self.playlist) - 1)
+            while new_idx == self.currentIndex and len(self.playlist) > 1:
+                new_idx = random.randint(0, len(self.playlist) - 1)
+            self.currentIndex = new_idx
+        else:
+            # 顺序/循环：按顺序 -1
             self.currentIndex = (self.currentIndex - 1) % len(self.playlist)
             self.loadSong(self.playlist[self.currentIndex])
+            pygame.mixer.music.load(self.destination)
             self.play_start_pos = 0  # 重置
             self.play()
             if not wasPlaying:
@@ -307,7 +361,7 @@ class musicEngine:
         )
         if not file:
             print("未选择文件")
-            return 1
+            return 0
         
         # 解析 M3U
         m3uhandle = M3UHandler()
@@ -340,7 +394,19 @@ class musicEngine:
             return 1
     
     def switchMode(self):
-        self.playMode
+        # 循环左移 1 位，保留低 4 位
+        self.playMode = ((self.playMode << 1) | (self.playMode >> 3)) & 0b1111
+
+        if self.playMode == 0:
+            self.playMode = 0b0001
+        
+        mode_names = {
+            0b0001: "单曲循环",
+            0b0010: "顺序播放",
+            0b0100: "随机播放",
+            0b1000: "列表循环"
+        }
+        print(f"播放模式: {mode_names.get(self.playMode)}")
             
     # 总控制器
     def runCommand(self):
@@ -348,12 +414,13 @@ class musicEngine:
             # 检查是否播放完毕（加一点缓冲，避免浮点误差）
             if self.current_pos >= self.duration - 0.2:
                 # 单曲循环模式
-                if self.playMode == 0b0001:  # MODE_SINGLE
-                    self.loadSong(self.destination)
-                    self.play_start_pos = 0
-                    self.play()
-                else:
+                if self.PlayMode != self.MODE_SEQUENTIAL: 
                     self.nextSong()
+                else:
+                    if self.currentIndex == len(self.playlist):
+                        self.stop()
+                    else:
+                        self.nextSong()
             try:
                 # 过来加命令
                 command = self.Qevent.get(timeout=0.1)
@@ -393,12 +460,12 @@ class musicEngine:
                     self.showInfo()
                 elif command == "change_mode":
                     # 没做完
-                    pass
+                    self.switchMode()
                 elif command == "save_playlist":
                     self.createPlaylist()
                 elif command == "load_playlist":
                     wasPlaying = self.isPlaying
-                    if not self.loadPlaylist():
+                    if self.loadPlaylist():
                         self.currentIndex = 0
                         showLists(self.currentIndex, self.playlist, self.cache)
                         self.loadSong(self.playlist[0])
@@ -442,7 +509,9 @@ class musicEngine:
             self.loadJump = 0.1
         self.isPlaying = state.get("wasPlaying", False)
         self.isPaused = state.get("wasPaused", True)
-        self.playMode = state.get("playMode", "normal")
+        self.playMode = state.get("playMode", 0b0001)
+        if self.playMode == 'null' or self.playMode == None:
+            self.playMode = 0b0001
         pygame.mixer.music.set_volume(state.get("volume", 0.7))
         metadatas = {}
         for song in self.playlist:
@@ -456,7 +525,7 @@ class musicEngine:
         pygame.mixer.music.stop()
         self.loadSong(self.playlist[self.currentIndex], keep_position=True)
         pygame.mixer.music.load(self.playlist[self.currentIndex])
-        self.play_start_pos = self.loadJump / 1000.0
+        self.play_start_pos = self.loadJump 
         
         self.play()
         
