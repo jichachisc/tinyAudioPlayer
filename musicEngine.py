@@ -414,7 +414,7 @@ class musicEngine:
             # 检查是否播放完毕（加一点缓冲，避免浮点误差）
             if self.current_pos >= self.duration - 0.2:
                 # 单曲循环模式
-                if self.PlayMode != self.MODE_SEQUENTIAL: 
+                if self.playMode != self.MODE_SEQUENTIAL: 
                     self.nextSong()
                 else:
                     if self.currentIndex == len(self.playlist):
@@ -562,7 +562,7 @@ class musicEngine:
             self.scroll_counter
         )
         
-        return f"[{bar}] {percent*100:.1f}% {_format_time(self.current_pos)}/{_format_time(self.duration)}  {display_info}             "
+        return f"[{bar}] {percent*100:>4.1f}% {_format_time(self.current_pos)}/{_format_time(self.duration)}  {display_info}             "
 
 
 # 免得以后的我看不懂，在没有搞清楚自己再干啥之前不要动 musicEngine
