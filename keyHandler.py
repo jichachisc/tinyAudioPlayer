@@ -4,7 +4,7 @@ import threading
 import pywinctl
 
 class keyHandler:
-    def __init__(self, Qevent2handler, Qkey=keyboard.Key.esc, inDebug = False, nameIncluded="python  music"):
+    def __init__(self, Qevent2handler, Qkey=keyboard.Key.esc, inDebug = False, nameIncluded="tinyAudioPlayer"):
         self.pressed_keys = set()
         self.key_queue = queue.Queue()
         self.running = True
@@ -22,7 +22,7 @@ class keyHandler:
     def on_press(self, key):
         try:
             active_window = pywinctl.getActiveWindow()
-            if not active_window or self.nameIncluded not in active_window.title.lower():
+            if not active_window or self.nameIncluded.lower() not in active_window.title.lower():
                 #print(active_window.title.lower())
                 return  # 窗口未激活，直接返回，不处理任何按键
         except Exception as e:

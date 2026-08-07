@@ -3,30 +3,42 @@ from mutagen.mp3 import MP3
 from mutagen.flac import FLAC
 from mutagen.oggvorbis import OggVorbis
 
+import os
+
 def normalizePath(path, base_dir="./"):
     """
-    将路径转换为相对于 base_dir 的相对路径
-
-    如果 path 已经是相对路径，直接返回
-    如果是绝对路径，计算相对路径
+    将路径转换为统一的相对路径格式：
+    - 统一使用正斜杠 `/`
+    - 统一以 `./` 开头
+    - 统一为相对路径（相对于 base_dir）
     """
-    # 如果已经是相对路径（不以盘符或 / 开头）
-    if not os.path.isabs(path):
-        return path
+    # 1. 统一为正斜杠
+    path = path.replace('\\', '/')
     
-    # 绝对路径 → 相对路径
-    try:
-        rel_path = os.path.relpath(path, base_dir)
-        # 如果 rel_path 以 .. 开头，说明文件在 base_dir 外面
-        # 这种情况下 fallback 到绝对路径（可能匹配不到 cache）
-        if rel_path.startswith('..'):
-            print("\n" + f"提醒：本文件不在程序扫描目录内: {path}")
+    # 2. 如果是绝对路径，转为相对路径
+    if os.path.isabs(path):
+        try:
+            rel_path = os.path.relpath(path, base_dir)
+            # 统一为正斜杠
+            rel_path = rel_path.replace('\\', '/')
+            # 如果不在 base_dir 下，直接返回绝对路径
+            if rel_path.startswith('..'):
+                print(f"\n提醒：文件在程序目录外: {path}")
+                return path
+            path = rel_path
+        except ValueError:
+            print(f"跨驱动器路径无法转换: {path}")
             return path
-        return rel_path
-    except ValueError:
-        # 不同驱动器（Windows 上 C:\ 和 D:\ 之间无法 relpath）
-        print(f"跨驱动器路径无法转换: {path}")
-        return path
+    
+    # 3. 确保以 ./ 开头（但不要变成 ././）
+    if not path.startswith('./') and not path.startswith('../'):
+        path = './' + path
+    
+    # 4. 去除多余的斜杠（避免 ././ 或 //）
+    while '/./' in path:
+        path = path.replace('/./', '/')
+    
+    return path
 
 def getFileMetadata(destination : str):
         ext = os.path.splitext(destination)[1].lower()
