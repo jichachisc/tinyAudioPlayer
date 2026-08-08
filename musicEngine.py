@@ -80,6 +80,7 @@ class musicEngine:
         self.scroll_counter = 0
         log(f"\r{' ' * 120}\r尝试重置引擎成功，尝试加载 {self.destination}", "debug")
         self.get_Metadata()
+        pygame.mixer.music.load(self.destination)
 
     def init_engine(self):
         pygame.mixer.init()
