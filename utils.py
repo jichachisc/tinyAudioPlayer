@@ -2,6 +2,7 @@ import os
 from mutagen.mp3 import MP3
 from mutagen.flac import FLAC
 from mutagen.oggvorbis import OggVorbis
+from config import DEBUG, log
 
 import os
 
@@ -23,11 +24,11 @@ def normalizePath(path, base_dir="./"):
             rel_path = rel_path.replace('\\', '/')
             # 如果不在 base_dir 下，直接返回绝对路径
             if rel_path.startswith('..'):
-                print(f"\n提醒：文件在程序目录外: {path}")
+                log(f"\n提醒：文件在程序目录外: {path}", "debug")
                 return path
             path = rel_path
         except ValueError:
-            print(f"跨驱动器路径无法转换: {path}")
+            log(f"跨驱动器路径无法转换: {path}", "debug")
             return path
     
     # 3. 确保以 ./ 开头（但不要变成 ././）
