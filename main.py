@@ -27,7 +27,7 @@ if __name__ == "__main__":
     playlist = scanDir(playlistDir)
     
     if playlist:
-        engine = musicEngine(playlist, Qevent)
+        engine = musicEngine(playlist, Qevent, playlistDir)
         
         if os.path.exists("stateBeforeExit.json"):
             engine.loadState()

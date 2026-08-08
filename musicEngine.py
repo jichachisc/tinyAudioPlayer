@@ -20,7 +20,7 @@ class musicEngine:
     MODE_SHUFFLE = 0b0100      # 随机播放
     MODE_LIST = 0b1000         # 列表循环
 
-    def __init__(self, playlist: list, Qevent: queue.Queue):
+    def __init__(self, playlist: list, Qevent: queue.Queue, pathDir: str):
         log("尝试启动", "debug")
         self.isStarted = False
         self.isPlaying = False
@@ -42,7 +42,7 @@ class musicEngine:
         self.loadJump = 0.0
 
         # 创建 cache
-        self.handler = cacheHandler("metadata_cache.json", "./")
+        self.handler = cacheHandler("metadata_cache.json", pathDir)
         if os.path.exists("metadata_cache.json"):
             self.cache = self.handler.readJson()
             songLists = self.cache.keys()
